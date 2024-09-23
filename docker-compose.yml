@@ -8,8 +8,16 @@ services:
       - 11434:11434
     container_name: ollama
 
+  fastapi:
+    build: src/api/
+    ports: 
+      - "8000:8000"
+    container_name: fastapi
+
   streamlit-app:
     build: frontend/
+    depends_on:
+      - fastapi
     ports:
       - 8501:8501
     container_name: frontend
