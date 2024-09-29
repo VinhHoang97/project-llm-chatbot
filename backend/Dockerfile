@@ -1,14 +1,14 @@
 FROM python:latest
 
-RUN mkdir /api
+RUN mkdir /app
 
-COPY requirements.txt /api
+COPY requirements.txt /app
 
-WORKDIR /api
+WORKDIR /app
 
 RUN pip install -r requirements.txt
 
-COPY . /api
+COPY . /app
 
 EXPOSE 8000
 
