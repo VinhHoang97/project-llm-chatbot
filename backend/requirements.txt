@@ -1,1 +1,7 @@
 fastapi
+langchain_community
+langchain_chroma
+langchain_ollama
+beautifulsoup4
+jq
+sentence-transformers==2.2.1

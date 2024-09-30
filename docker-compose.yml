@@ -9,7 +9,7 @@ services:
     container_name: ollama
 
   fastapi:
-    build: src/api/
+    build: backend/
     ports: 
       - "8000:8000"
     container_name: fastapi
