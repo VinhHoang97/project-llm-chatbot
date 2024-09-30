@@ -3,7 +3,7 @@ import { Injectable } from '@nestjs/common';
 import * as fs from 'fs'; // Import the 'fs' module
 
 const fireCrawl = new FirecrawlApp({
-  apiKey: 'fc-460438c8d3b0405887af8fbc0a24d1fc',
+  apiKey: 'fc-f7c3c69805fc4bfabd5b71cd0900fc64',
 });
 
 // https://tuoitre.vn/
@@ -11,7 +11,7 @@ const fireCrawl = new FirecrawlApp({
 export class AppService {
   public getData = async (urlName: string) => {
     const crawlResult = await fireCrawl.crawlUrl(urlName, {
-      limit: 1,
+      limit: 500,
       scrapeOptions: {
         formats: ['markdown'],
       },
