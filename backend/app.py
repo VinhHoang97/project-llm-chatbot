@@ -4,9 +4,11 @@ import logging
 
 from langchain_community.document_loaders import JSONLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_chroma import Chroma
-from langchain_ollama import OllamaEmbeddings
+from langchain_community.vectorstores.chroma import Chroma
 from langchain.embeddings import HuggingFaceEmbeddings
+
+MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+hf_embeddings = HuggingFaceEmbeddings(model_name=MODEL_NAME)
 
 class InputDataFormat(BaseModel):
     text: str
@@ -18,28 +20,30 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
     
 
-@app.post("/process")
-def process(input: InputDataFormat):
+@app.post("/create-document")
+def create_embedding():
     file_path='formatData/data.json'
     loader = JSONLoader(
         file_path=file_path,
         jq_schema=".[].content",
         text_content=False)
-
     data = loader.load()
-
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=0)
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=0)
     all_splits = text_splitter.split_documents(data)
-    MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
-    hf_embeddings = HuggingFaceEmbeddings(model_name=MODEL_NAME)
+    vectorstore = Chroma.from_documents(all_splits, hf_embeddings, persist_directory="./chroma_langchain_db")
+    vectorstore.persist()
+    
+    print("test vectorstore", vectorstore)
 
-    vectorstore = Chroma.from_documents(all_splits, hf_embeddings, persist_directory="db")
-    
-    question = "Các nhân vật tiêu biểu văn hóa?"
-    docs = vectorstore.similarity_search(question)
-    # print(len(docs))
-    
-    return {"result": docs}
+@app.post("/process")
+def process(query: str):
+    chroma_store = Chroma(
+        embedding_function=hf_embeddings, 
+        persist_directory="./chroma_langchain_db"
+    )
+    query = "tin tức nổi bật nhất hôm nay?"
+    results = chroma_store.similarity_search(query)
+    return {"result": results[0]}
 
 if __name__ == "__main__":
     import uvicorn
