@@ -3,15 +3,15 @@ from pydantic import BaseModel
 import logging
 
 from langchain_community.document_loaders import JSONLoader
+from langchain_community.vectorstores import Chroma
+from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.vectorstores.chroma import Chroma
-from langchain.embeddings import HuggingFaceEmbeddings
+from langchain.llms import Ollama
+from langchain import PromptTemplate, LLMChain
 
-MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
-hf_embeddings = HuggingFaceEmbeddings(model_name=MODEL_NAME)
 
 class InputDataFormat(BaseModel):
-    text: str
+    query: str
     
 app = FastAPI()
 
@@ -22,28 +22,57 @@ logger = logging.getLogger(__name__)
 
 @app.post("/create-document")
 def create_embedding():
+    MODEL_NAME = "keepitreal/vietnamese-sbert"
+    hf_embeddings = HuggingFaceEmbeddings(model_name=MODEL_NAME)
+    persist_directory = 'db'
+    
     file_path='formatData/data.json'
     loader = JSONLoader(
         file_path=file_path,
         jq_schema=".[].content",
         text_content=False)
     data = loader.load()
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=0)
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=200)
     all_splits = text_splitter.split_documents(data)
-    vectorstore = Chroma.from_documents(all_splits, hf_embeddings, persist_directory="./chroma_langchain_db")
+    vectorstore = Chroma.from_documents(documents=all_splits, embedding=hf_embeddings, persist_directory=persist_directory)
     vectorstore.persist()
-    
-    print("test vectorstore", vectorstore)
 
 @app.post("/process")
-def process(query: str):
-    chroma_store = Chroma(
-        embedding_function=hf_embeddings, 
-        persist_directory="./chroma_langchain_db"
+def process(input: InputDataFormat):
+    MODEL_NAME = "keepitreal/vietnamese-sbert"
+    hf_embeddings = HuggingFaceEmbeddings(model_name=MODEL_NAME)
+    persist_directory = 'db'
+    chroma_store = Chroma(persist_directory=persist_directory, embedding_function=hf_embeddings)
+
+    query = input.model_dump()["query"]
+    document = chroma_store.similarity_search(query)
+    
+    ollama = Ollama(base_url="http://localhost:11434", model="llama2")
+    
+    template = """Dưới đây là các tài lệu liên quan đến câu hỏi của bạn:
+        TÀI LỆU: {document}
+        Trả lời câu hỏi sau: {question}
+        
+        Hướng dẫn:
+        - Câu trả lời đầy đủ và chi tiết.
+        - Không tự tạo đáp án nếu không thể trả lời
+        - Không sử dụng các cụm từ dẫn đến một văn bản khác như "theo tài liệu, theo đường dẫn, theo thông tin,..." và các cụm từ tương tự.
+        - Đường dẫn của tài liệu chứa câu trả lời
+        - Trả lời theo format:
+        # Câu trả lời:
+        ...
+        # Tham khảo:
+        ... 
+        """
+    
+    prompt_template = PromptTemplate(
+        template=template, input_variables=["document", "question"]
     )
-    query = "tin tức nổi bật nhất hôm nay?"
-    results = chroma_store.similarity_search(query)
-    return {"result": results[0]}
+    
+    llm_chain = LLMChain(llm=ollama, prompt=prompt_template)
+    response = llm_chain.run({"document": document, "question": query})
+
+    return {"result": response}
 
 if __name__ == "__main__":
     import uvicorn
