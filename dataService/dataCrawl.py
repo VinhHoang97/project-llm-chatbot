@@ -23,6 +23,13 @@ def clean_markdown(markdown_text):
     # Trả về văn bản sạch
     return clean_text.strip()
 
+def clean_text(text):
+    # Loại bỏ các đường link
+    text = re.sub(r'http\S+', '', text)
+    # Loại bỏ ký tự xuống dòng
+    text = text.replace('\n', ' ')
+    return text.strip()
+
 
 # Hàm trích xuất và làm sạch dữ liệu
 def extract_and_clean(data):
@@ -34,14 +41,14 @@ def extract_and_clean(data):
         metadata = entry.get("metadata", {})
 
         # Làm sạch markdown
-        clean_text = clean_markdown(markdown_text)
+        clean_text_str = clean_markdown(markdown_text)
 
         # Tạo cấu trúc dữ liệu mới sau khi làm sạch
         cleaned_entry = {
             "title": metadata.get("ogTitle", ""),
             "description": metadata.get("description", ""),
             "keywords": metadata.get("keywords", ""),
-            "content": clean_text,
+            "content": clean_text(clean_text_str),
             "sourceURL": metadata.get("sourceURL", "")
         }
         extracted_data.append(cleaned_entry)
