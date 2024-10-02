@@ -1,3 +1,4 @@
+fastapi
 langchain_community
 langchain_chroma
 langchain_ollama
