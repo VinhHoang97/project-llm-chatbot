@@ -1,18 +1,22 @@
 version: '3'
 services:
-  ollama-container:
+  ollama:
     image: ollama/ollama:latest
     volumes:
       - ./data/ollama:/root/.ollama
     ports:
       - 11434:11434
     container_name: ollama
+    networks:
+      - deploy_network
 
   fastapi:
     build: backend/
     ports: 
-      - "8000:8000"
+      - 8000:8000
     container_name: fastapi
+    networks:
+      - deploy_network
 
   streamlit-app:
     build: frontend/
@@ -21,3 +25,9 @@ services:
     ports:
       - 8501:8501
     container_name: frontend
+    networks:
+      - deploy_network
+
+networks:
+  deploy_network:
+    driver: bridge
