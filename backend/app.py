@@ -8,7 +8,7 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.chat_models import ChatOllama
 from langchain_core.prompts import PromptTemplate
-from langchain.chains import RetrievalQA
+from langchain.chains import RetrievalQAChain
 
 class InputDataFormat(BaseModel):
     query: str
@@ -44,28 +44,36 @@ def process(input: InputDataFormat):
     persist_directory = 'db'
     chroma_store = Chroma(persist_directory=persist_directory, embedding_function=hf_embeddings)
     # Tạo retriever từ Chroma
-    retriever = chroma_store.as_retriever(search_type="similarity", search_kwargs={"k": 10})
+    retriever = chroma_store.as_retriever(search_type="similarity", search_kwargs={"k": 5})
 
     query = input.model_dump()["query"]
-        
+    
     template = """Dưới đây là các tài lệu liên quan đến câu hỏi của bạn:
         TÀI LỆU: {document}
-        Trả lời câu hỏi sau: {question}
         
-        Hướng dẫn:
+        Viết lại câu hỏi: {question}
+        
+        Hướng dẫn cách viết lại câu hỏi:
+        - Sinh ra các câu hỏi tương đồng.
+        - Trả lời các câu hỏi tương đồng lần lượt
+        
+        Hướng dẫn cách trả lời câu hỏi:
         - Câu trả lời đầy đủ và chi tiết.
         - Không tự tạo đáp án nếu không thể trả lời
         - Không sử dụng các cụm từ dẫn đến một văn bản khác như "theo tài liệu, theo đường dẫn, theo thông tin,..." và các cụm từ tương tự.
-        - Đường dẫn của tài liệu chứa câu trả lời
-        - Trả lời theo format:
+        - Sắp xếp lại câu trả lời bằng độ đo tương đồng giữa câu hỏi {question} và câu trả lời.
+        - Trả về câu trả lời có độ đo tương đồng cao nhất.
+        
+        Trả lời theo format:
         # Câu trả lời:
         ...
         # Tham khảo:
         ... 
-    #     """
+    """
     
     prompt_template = PromptTemplate(
-        template=template, input_variables=["document", "question"]
+        template=template,
+        input_variables=["documents", "question"]
     )
     
     # Khởi tạo ChatOllama
@@ -79,8 +87,8 @@ def process(input: InputDataFormat):
         num_ctx=3072,  # Kích thước cửa sổ ngữ cảnh
     )
 
-    # Sử dụng RunnableSequence để kết hợp prompt và llm
-    llm_chain = RetrievalQA(
+    # Sử dụng RetrievalQAChain thay vì RetrievalQA
+    llm_chain = RetrievalQAChain.from_llm(
         llm=llm,
         retriever=retriever,
         prompt=prompt_template,
@@ -92,6 +100,7 @@ def process(input: InputDataFormat):
 
     # Trả kết quả
     documents = "\n".join([doc.page_content for doc in response["source_documents"]])
+
     return {
         "result": response["result"],
         "documents": documents
