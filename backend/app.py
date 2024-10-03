@@ -8,7 +8,7 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.chat_models import ChatOllama
 from langchain_core.prompts import PromptTemplate
-from langchain.chains import RetrievalQAChain
+from langchain.chains import RetrievalQA
 
 class InputDataFormat(BaseModel):
     query: str
@@ -43,40 +43,36 @@ def process(input: InputDataFormat):
     hf_embeddings = HuggingFaceEmbeddings(model_name=MODEL_NAME)
     persist_directory = 'db'
     chroma_store = Chroma(persist_directory=persist_directory, embedding_function=hf_embeddings)
+
     # Tạo retriever từ Chroma
     retriever = chroma_store.as_retriever(search_type="similarity", search_kwargs={"k": 5})
 
     query = input.model_dump()["query"]
-    
-    template = """Dưới đây là các tài lệu liên quan đến câu hỏi của bạn:
-        TÀI LỆU: {document}
-        
-        Viết lại câu hỏi: {question}
-        
-        Hướng dẫn cách viết lại câu hỏi:
-        - Sinh ra các câu hỏi tương đồng.
-        - Trả lời các câu hỏi tương đồng lần lượt
-        
-        Hướng dẫn cách trả lời câu hỏi:
-        - Câu trả lời đầy đủ và chi tiết.
-        - Không tự tạo đáp án nếu không thể trả lời
-        - Không sử dụng các cụm từ dẫn đến một văn bản khác như "theo tài liệu, theo đường dẫn, theo thông tin,..." và các cụm từ tương tự.
-        - Sắp xếp lại câu trả lời bằng độ đo tương đồng giữa câu hỏi {question} và câu trả lời.
-        - Trả về câu trả lời có độ đo tương đồng cao nhất.
-        
-        Trả lời theo format:
-        # Câu trả lời:
-        ...
-        # Tham khảo:
-        ... 
+
+    template = """Dưới đây là các tài liệu liên quan đến câu hỏi của bạn:
+    TÀI LIỆU: {context}
+
+    Câu hỏi: {question}
+
+    Hướng dẫn cách trả lời câu hỏi:
+    - Câu trả lời đầy đủ và chi tiết.
+    - Không tự tạo đáp án nếu không thể trả lời
+    - Không sử dụng các cụm từ dẫn đến một văn bản khác như "theo tài liệu, theo đường dẫn, theo thông tin,..." và các cụm từ tương tự.
+
+    Trả lời theo format:
+    # Câu trả lời:
+    ...
+    # Tham khảo:
+    ... 
     """
-    
+
+    # Tạo PromptTemplate cho hệ thống hỏi đáp
     prompt_template = PromptTemplate(
         template=template,
-        input_variables=["documents", "question"]
+        input_variables=["context", "question"]
     )
-    
-    # Khởi tạo ChatOllama
+
+    # Khởi tạo LLM ChatOllama
     llm = ChatOllama(
         temperature=0,
         base_url="http://ollama:11434/",
@@ -87,23 +83,23 @@ def process(input: InputDataFormat):
         num_ctx=3072,  # Kích thước cửa sổ ngữ cảnh
     )
 
-    # Sử dụng RetrievalQAChain thay vì RetrievalQA
-    llm_chain = RetrievalQAChain.from_llm(
+    # Sử dụng RetrievalQA chain
+    qa_chain = RetrievalQA.from_chain_type(
         llm=llm,
+        chain_type="stuff",  # Dùng phương pháp 'stuff' để kết hợp tài liệu
         retriever=retriever,
-        prompt=prompt_template,
-        return_source_documents=True
+        return_source_documents=True,
+        chain_type_kwargs={
+            "prompt": prompt_template,
+            "document_variable_name": "context"
+        }
     )
 
     # Gọi response từ query
-    response = llm_chain({"query": query})
-
-    # Trả kết quả
-    documents = "\n".join([doc.page_content for doc in response["source_documents"]])
+    response = qa_chain({"query": query})
 
     return {
         "result": response["result"],
-        "documents": documents
     }
 
 if __name__ == "__main__":
