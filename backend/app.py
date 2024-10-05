@@ -10,6 +10,8 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.chat_models import ChatOllama
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
+import requests
+
 
 class InputDataFormat(BaseModel):
     query: str
@@ -19,6 +21,13 @@ app = FastAPI()
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+@app.post("/import-url")
+def import_url(input: dict):
+   #call local host 3000 to import new url
+    url = input["urlName"]
+    response = requests.get("http://host.docker.internal:3000/data?urlName="+url)
+    return {"message": "Imported data from URL: " + url}
     
 
 @app.post("/create-document")

@@ -11,3 +11,8 @@
    ```
    $ docker-compose up
    ```
+
+3. Cách chạy crawService:
+- cd vào folder crawService
+- pnpm i (nếu chạy lần đầu)
+- pnpm run start:dev
