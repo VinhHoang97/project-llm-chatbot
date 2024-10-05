@@ -1,6 +1,11 @@
 import streamlit as st
 import requests
 
+if st.button("Nhập url"):
+    url = st.text_input("Nhập url")
+    response = requests.post("http://fastapi:8000/import-url", json={"urlName": url})
+    st.write(response.json()["message"])
+
 if st.button("Tạo không gian embedding"):
     response = requests.post("http://fastapi:8000/create-document")
     st.write("Hoàn thành")
