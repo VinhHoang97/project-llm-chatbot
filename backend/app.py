@@ -23,10 +23,11 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 @app.post("/import-url")
-def import_url(input: {urlName: str}):
+def import_url(input: dict):
    #call local host 3000 to import new url
-    response = requests.post("http://localhost:3000/data?urlName={}".format(input["urlName"]))
-    return {"message": "Imported URL"}
+    url = input["urlName"]
+    response = requests.get("http://host.docker.internal:3000/data?urlName="+url)
+    return {"message": "Imported data from URL: " + url}
     
 
 @app.post("/create-document")
