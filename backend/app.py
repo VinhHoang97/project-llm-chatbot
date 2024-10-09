@@ -22,19 +22,61 @@ app = FastAPI()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+MODEL_NAME = "keepitreal/vietnamese-sbert"
+hf_embeddings = HuggingFaceEmbeddings(model_name=MODEL_NAME)
+
+print("Loading Done: ",hf_embeddings)
+
+persist_directory = 'db'
+vectorstore = None
+
+
 @app.post("/import-url")
 def import_url(input: dict):
    #call local host 3000 to import new url
     url = input["urlName"]
     response = requests.get("http://host.docker.internal:3000/data?urlName="+url)
     return {"message": "Imported data from URL: " + url}
+
+@app.post("/get-question")
+def get_question(input: InputDataFormat):
+    llm = ChatOllama(
+        temperature=0,
+        base_url="http://ollama:11434/",
+        model="llama3.2:1b",
+        streaming=True,
+        top_k=5,  # Độ đa dạng câu trả lời
+        top_p=0.3,  # Mức độ tập trung của văn bản sinh ra
+        num_ctx=3072,  # Kích thước cửa sổ ngữ cảnh
+    )
+    query = input.model_dump()["query"]
+
+    template = """
+    Câu trả lời trước đó của tôi là: {question}.
+    Giúp tôi tạo một câu hỏi ngẫu nhiên để cập nhật tin tức mới nhất dựa trên câu trả lời trước đó.
+    """
+    # Tạo PromptTemplate cho hệ thống hỏi đáp
+    prompt_template = ChatPromptTemplate.from_template(
+        template,
+    )
+    qa_chain = (
+        {"question": itemgetter("question")} 
+        | prompt_template
+        | llm
+        | StrOutputParser()
+    )
+    # Gọi response từ query
+    response = qa_chain.invoke({"question": query})
+
+    return {
+        "result": response,
+    }
     
 
 @app.post("/create-document")
 def create_embedding():
+    global vectorstore
     MODEL_NAME = "keepitreal/vietnamese-sbert"
-    hf_embeddings = HuggingFaceEmbeddings(model_name=MODEL_NAME)
-    persist_directory = 'db'
     
     file_path='formatData/data.json'
     loader = JSONLoader(
@@ -45,7 +87,8 @@ def create_embedding():
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100, separators=["\n\n", "\n"])
     all_splits = text_splitter.split_documents(data)
     vectorstore = Chroma.from_documents(documents=all_splits, embedding=hf_embeddings, persist_directory=persist_directory)
-    vectorstore.persist()
+    # vectorstore2.persist()
+    # vectorstore = Chroma(persist_directory=persist_directory, embedding_function=hf_embeddings)
 
 def format_docs(docs):
     return "\n\n".join(doc.page_content for doc in docs)
@@ -83,9 +126,7 @@ def reciprocal_rank_fusion(results: list[list], k=60):
 @app.post("/process")
 def process(input: InputDataFormat):
     MODEL_NAME = "keepitreal/vietnamese-sbert"
-    hf_embeddings = HuggingFaceEmbeddings(model_name=MODEL_NAME)
-    persist_directory = 'db'
-    vectorstore = Chroma(persist_directory=persist_directory, embedding_function=hf_embeddings)
+    print("Loading Chroma...: ",hf_embeddings)
     retriever = vectorstore.as_retriever()
 
     query = input.model_dump()["query"]
