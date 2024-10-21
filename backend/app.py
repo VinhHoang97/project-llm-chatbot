@@ -73,34 +73,24 @@ def get_question(input: InputDataFormat):
     }
     
 
-# Define the metadata extraction function.
-def metadata_func(record: dict, metadata: dict) -> dict:
-
-    metadata["sourceURL"] = record.get("sourceURL")
-    metadata["keywords"] = record.get("keywords")
-
-    return metadata
-
 @app.post("/create-document")
 def create_embedding():
     global vectorstore
+    MODEL_NAME = "keepitreal/vietnamese-sbert"
     
     file_path='formatData/data.json'
     loader = JSONLoader(
         file_path=file_path,
-        jq_schema=".[]",
-        metadata_func=metadata_func,
-        content_key="content",)
+        jq_schema=".[].content",
+        text_content=False)
     data = loader.load()
-
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100, separators=["\n\n", "\n"])
     all_splits = text_splitter.split_documents(data)
-
     vectorstore = Chroma.from_documents(documents=all_splits, embedding=hf_embeddings, persist_directory=persist_directory)
+    # vectorstore2.persist()
+    # vectorstore = Chroma(persist_directory=persist_directory, embedding_function=hf_embeddings)
 
 def format_docs(docs):
-    print(type(docs))
-    print("Tét docs: ", docs)
     return "\n\n".join(doc.page_content for doc in docs)
 
 def reciprocal_rank_fusion(results: list[list], k=60):
@@ -119,6 +109,8 @@ def reciprocal_rank_fusion(results: list[list], k=60):
             # If the document is not yet in the fused_scores dictionary, add it with an initial score of 0
             if doc_str not in fused_scores:
                 fused_scores[doc_str] = 0
+            # Retrieve the current score of the document, if any
+            previous_score = fused_scores[doc_str]
             # Update the score of the document using the RRF formula: 1 / (rank + k)
             fused_scores[doc_str] += 1 / (rank + k)
 
@@ -133,6 +125,7 @@ def reciprocal_rank_fusion(results: list[list], k=60):
 
 @app.post("/process")
 def process(input: InputDataFormat):
+    MODEL_NAME = "keepitreal/vietnamese-sbert"
     print("Loading Chroma...: ",hf_embeddings)
     retriever = vectorstore.as_retriever()
 
@@ -162,13 +155,21 @@ def process(input: InputDataFormat):
     retrieval_chain_rag_fusion = generate_queries | retriever.map() | reciprocal_rank_fusion
 
 
-    template = """Bạn là một trợ lý hữu ích giúp trả lời câu hỏi dựa trên tài liệu. 
-    Tài liệu: {context}
+    template = """Dưới đây là các tài liệu liên quan đến câu hỏi của bạn:
+    TÀI LIỆU: {context}
+
     Câu hỏi: {question}
-    Nếu không có tài liệu nào trong {context} thì trả lời "Bạn không biết"
-    Trả lời theo định dạng sau:
-    ## Câu trả lời: ...
-    ## Tài liệu: {context}
+
+    Hướng dẫn cách trả lời câu hỏi:
+    - Câu trả lời đầy đủ và chi tiết.
+    - Không tự tạo đáp án nếu không thể trả lời
+    - Không sử dụng các cụm từ dẫn đến một văn bản khác như "theo tài liệu, theo đường dẫn, theo thông tin,..." và các cụm từ tương tự.
+
+    Trả lời theo format:
+    # Câu trả lời:
+    ...
+    # Tham khảo:
+    {context}
     """
 
     # Tạo PromptTemplate cho hệ thống hỏi đáp
@@ -176,30 +177,20 @@ def process(input: InputDataFormat):
         template,
     )
 
-    # Gọi retrieval_chain_rag_fusion để lấy tài liệu
-    retrieval_output = retrieval_chain_rag_fusion.invoke({"question": query})
-
-    # lisSourceURL = [doc.metadata.get("sourceURL", "") ]
-    print(type(retrieval_output))
-    listDocument = format_docs(retrieval_output)
-    
-    # print("Retrieval source URL: ", lisSourceURL)
-
     # Sử dụng RetrievalQA chain
     qa_chain = (
-        {"context": itemgetter("listDocument"), 
+        {"context": retrieval_chain_rag_fusion, 
         "question": itemgetter("question")} 
         | prompt_template
         | llm
         | StrOutputParser()
     )
-    
+
     # Gọi response từ query
-    response = qa_chain.invoke({"question":query, "context": listDocument})
+    response = qa_chain.invoke({"question":query})
 
     return {
         "result": response,
-        # "sourceURL": lisSourceURL,
     }
 
 if __name__ == "__main__":

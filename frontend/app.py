@@ -52,7 +52,5 @@ if prompt := st.chat_input("Hãy nhập câu hỏi của bạn..."):
     with st.chat_message("assistant"):
         modelAnswer = requests.post("http://fastapi:8000/process", json={"query": prompt})
         response = st.write(modelAnswer.json()["result"])
-        st.h1("Link nguồn:")
-        st.write(modelAnswer.json()["sourceURL"])
         # Add assistant response to chat history
         st.session_state.messages.append({"role": "assistant", "content": modelAnswer.json()["result"]})
