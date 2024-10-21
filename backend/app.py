@@ -72,26 +72,27 @@ def get_question(input: InputDataFormat):
         "result": response,
     }
     
+# Define the metadata extraction function.
+def metadata_func(record: dict, metadata: dict) -> dict:
 
+    metadata["sourceURL"] = record.get("sourceURL")
+    metadata["keywords"] = record.get("keywords")
+
+    return metadata
 @app.post("/create-document")
 def create_embedding():
     global vectorstore
-    MODEL_NAME = "keepitreal/vietnamese-sbert"
     
     file_path='formatData/data.json'
     loader = JSONLoader(
         file_path=file_path,
-        jq_schema=".[].content",
-        text_content=False)
+        jq_schema=".[]",
+        metadata_func=metadata_func,
+        content_key="content",)
     data = loader.load()
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100, separators=["\n\n", "\n"])
     all_splits = text_splitter.split_documents(data)
     vectorstore = Chroma.from_documents(documents=all_splits, embedding=hf_embeddings, persist_directory=persist_directory)
-    # vectorstore2.persist()
-    # vectorstore = Chroma(persist_directory=persist_directory, embedding_function=hf_embeddings)
-
-def format_docs(docs):
-    return "\n\n".join(doc.page_content for doc in docs)
 
 def reciprocal_rank_fusion(results: list[list], k=60):
     """ Reciprocal_rank_fusion that takes multiple lists of ranked documents 
@@ -120,12 +121,12 @@ def reciprocal_rank_fusion(results: list[list], k=60):
         for doc, score in sorted(fused_scores.items(), key=lambda x: x[1], reverse=True)
     ]
 
+    print("Reranked results: ", [reranked_results[0]])
     # Return the reranked results as a list of tuples, each containing the document and its fused score
-    return reranked_results
+    return [reranked_results[0]]
 
 @app.post("/process")
 def process(input: InputDataFormat):
-    MODEL_NAME = "keepitreal/vietnamese-sbert"
     print("Loading Chroma...: ",hf_embeddings)
     retriever = vectorstore.as_retriever()
 
@@ -154,22 +155,23 @@ def process(input: InputDataFormat):
     )
     retrieval_chain_rag_fusion = generate_queries | retriever.map() | reciprocal_rank_fusion
 
-
     template = """Dưới đây là các tài liệu liên quan đến câu hỏi của bạn:
     TÀI LIỆU: {context}
 
     Câu hỏi: {question}
 
     Hướng dẫn cách trả lời câu hỏi:
-    - Câu trả lời đầy đủ và chi tiết.
-    - Không tự tạo đáp án nếu không thể trả lời
-    - Không sử dụng các cụm từ dẫn đến một văn bản khác như "theo tài liệu, theo đường dẫn, theo thông tin,..." và các cụm từ tương tự.
+    - Nếu context rỗng thì trả về "Không tìm thấy thông tin".
+    - Câu trả lời ngắn gọn và chính xác.
+    - Không tự tạo thêm các thông tin hoặc câu văn khác.
 
     Trả lời theo format:
-    # Câu trả lời:
+    # Câu trả lời: 
     ...
-    # Tham khảo:
+    # Tham khảo: 
     {context}
+    # Nguồn tài liệu: 
+    Lấy giá trị từ sourceURL trong metadata của tài liệu.
     """
 
     # Tạo PromptTemplate cho hệ thống hỏi đáp
