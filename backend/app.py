@@ -90,40 +90,9 @@ def create_embedding():
         metadata_func=metadata_func,
         content_key="content",)
     data = loader.load()
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100, separators=["\n\n", "\n"])
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=5000, chunk_overlap=100, separators=["\n\n", "\n", '.'])
     all_splits = text_splitter.split_documents(data)
     vectorstore = Chroma.from_documents(documents=all_splits, embedding=hf_embeddings, persist_directory=persist_directory)
-
-def reciprocal_rank_fusion(results: list[list], k=60):
-    """ Reciprocal_rank_fusion that takes multiple lists of ranked documents 
-        and an optional parameter k used in the RRF formula """
-    
-    # Initialize a dictionary to hold fused scores for each unique document
-    fused_scores = {}
-
-    # Iterate through each list of ranked documents
-    for docs in results:
-        # Iterate through each document in the list, with its rank (position in the list)
-        for rank, doc in enumerate(docs):
-            # Convert the document to a string format to use as a key (assumes documents can be serialized to JSON)
-            doc_str = dumps(doc)
-            # If the document is not yet in the fused_scores dictionary, add it with an initial score of 0
-            if doc_str not in fused_scores:
-                fused_scores[doc_str] = 0
-            # Retrieve the current score of the document, if any
-            previous_score = fused_scores[doc_str]
-            # Update the score of the document using the RRF formula: 1 / (rank + k)
-            fused_scores[doc_str] += 1 / (rank + k)
-
-    # Sort the documents based on their fused scores in descending order to get the final reranked results
-    reranked_results = [
-        (loads(doc), score)
-        for doc, score in sorted(fused_scores.items(), key=lambda x: x[1], reverse=True)
-    ]
-
-    print("Reranked results: ", [reranked_results[0]])
-    # Return the reranked results as a list of tuples, each containing the document and its fused score
-    return [reranked_results[0]]
 
 @app.post("/process")
 def process(input: InputDataFormat):
@@ -144,8 +113,9 @@ def process(input: InputDataFormat):
     )
     
     # Tạo retriever từ Chroma
-    template = """Bạn là trợ lý hữu ích tạo ra nhiều truy vấn tìm kiếm dựa trên một truy vấn đầu vào duy nhất. \nTạo nhiều truy vấn tìm kiếm liên quan đến: {question} \n
-    Đầu ra (4 câu truy vấn):"""
+    template = """You are a helpful assistant that generates multiple search queries based on a single input query. \n
+                Generate multiple search queries related to: {question} \n
+                Output (4 queries):"""
     prompt_rag_fusion = ChatPromptTemplate.from_template(template)
     generate_queries = (
         prompt_rag_fusion 
@@ -153,25 +123,33 @@ def process(input: InputDataFormat):
             | StrOutputParser() 
             | (lambda x: x.split("\n"))
     )
-    retrieval_chain_rag_fusion = generate_queries | retriever.map() | reciprocal_rank_fusion
+    retrieval_chain_rag_fusion = generate_queries | retriever.map()
+    reranked_results = retrieval_chain_rag_fusion.invoke({"question": query})
+    
+    fused_scores = {}
+    k=60
+    for docs in reranked_results:
+        for rank, doc in enumerate(docs):
+            doc_str = dumps(doc)
+            # If the document is not yet in the fused_scores dictionary, add it with an initial score of 0
+            # print('\n')
+            if doc_str not in fused_scores:
+                fused_scores[doc_str] = 0
+            # Retrieve the current score of the document, if any
+            previous_score = fused_scores[doc_str]
+            # Update the score of the document using the RRF formula: 1 / (rank + k)
+            fused_scores[doc_str] += 1 / (rank + k)
 
-    template = """Dưới đây là các tài liệu liên quan đến câu hỏi của bạn:
-    TÀI LIỆU: {context}
-
+        # final reranked result
+        reranked_results = [
+            (loads(doc), score)
+            for doc, score in sorted(fused_scores.items(), key=lambda x: x[1], reverse=True)
+        ]
+        
+    template = """Bạn làm một trợ lý trả lời câu hổi dựa vào tài liệu liên quan, nếu không có tài liệu thì trả lời là "tôi không biết" và không tạo các chi tiết không có trong document :
+    
+    Tài liệu: {context}
     Câu hỏi: {question}
-
-    Hướng dẫn cách trả lời câu hỏi:
-    - Nếu context rỗng thì trả về "Không tìm thấy thông tin".
-    - Câu trả lời ngắn gọn và chính xác.
-    - Không tự tạo thêm các thông tin hoặc câu văn khác.
-
-    Trả lời theo format:
-    # Câu trả lời: 
-    ...
-    # Tham khảo: 
-    {context}
-    # Nguồn tài liệu: 
-    Lấy giá trị từ sourceURL trong metadata của tài liệu.
     """
 
     # Tạo PromptTemplate cho hệ thống hỏi đáp
@@ -181,7 +159,7 @@ def process(input: InputDataFormat):
 
     # Sử dụng RetrievalQA chain
     qa_chain = (
-        {"context": retrieval_chain_rag_fusion, 
+        {"context": itemgetter("document"), 
         "question": itemgetter("question")} 
         | prompt_template
         | llm
@@ -189,10 +167,11 @@ def process(input: InputDataFormat):
     )
 
     # Gọi response từ query
-    response = qa_chain.invoke({"question":query})
+    response = qa_chain.invoke({"question":query, "document":str(list(reranked_results[0])[0].page_content)})
 
     return {
         "result": response,
+        "document": reranked_results[0]
     }
 
 if __name__ == "__main__":
