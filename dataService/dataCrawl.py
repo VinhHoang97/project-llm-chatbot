@@ -82,6 +82,11 @@ def extract_and_clean(data):
             "content": clean_text(clean_text_str),
             "sourceURL": metadata.get("sourceURL", "")
         }
+        
+        if (type(cleaned_entry["keywords"]) == list):
+            print(cleaned_entry["keywords"])
+            cleaned_entry["keywords"] = " ".join(list(set(cleaned_entry["keywords"])))
+            
         extracted_data.append(cleaned_entry)
 
     return extracted_data
