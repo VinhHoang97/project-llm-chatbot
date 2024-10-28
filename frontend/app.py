@@ -58,4 +58,4 @@ if prompt := st.chat_input("Hãy nhập câu hỏi của bạn..."):
         st.header("Nguồn:")
         st.write(modelAnswer.json()["document"][0]["metadata"]["sourceURL"])
         # Add assistant response to chat history
-        st.session_state.messages.append({"role": "assistant", "content": modelAnswer.json()["result"]})
+        st.session_state.messages.append({"role": "assistant", "content": modelAnswer.json()})
